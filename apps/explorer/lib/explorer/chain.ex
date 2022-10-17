@@ -4251,6 +4251,14 @@ defmodule Explorer.Chain do
     |> limit(^paging_options.page_size)
   end
 
+  defp handle_verified_contracts_paging_options(query, nil), do: query
+
+  defp handle_verified_contracts_paging_options(query, paging_options) do
+    query
+    |> page_verified_contracts(paging_options)
+    |> limit(^paging_options.page_size)
+  end
+
   defp handle_token_transfer_paging_options(query, nil), do: query
 
   defp handle_token_transfer_paging_options(query, paging_options) do
@@ -4486,6 +4494,12 @@ defmodule Explorer.Chain do
       ctb.value < ^value or (ctb.value == ^value and t.type < ^type) or
         (ctb.value == ^value and t.type == ^type and t.name < ^name)
     )
+  end
+
+  defp page_verified_contracts(query, %PagingOptions{key: nil}), do: query
+
+  defp page_verified_contracts(query, %PagingOptions{key: {inserted_at}}) do
+    where(query, [contract], contract.inserted_at < ^inserted_at)
   end
 
   @doc """
@@ -6232,4 +6246,42 @@ defmodule Explorer.Chain do
     |> to_string()
     |> String.downcase()
   end
+
+  def verified_contracts(options \\ []) do
+    necessity_by_association = Keyword.get(options, :necessity_by_association, %{})
+
+    paging_options = Keyword.get(options, :paging_options, @default_paging_options)
+
+    filter = Keyword.get(options, :filter, nil)
+    search_string = Keyword.get(options, :search, nil)
+
+    from(contract in SmartContract, select: contract)
+    |> order_by(desc: :inserted_at)
+    |> filter_contracts(filter)
+    |> search_contracts(search_string)
+    |> handle_verified_contracts_paging_options(paging_options)
+    |> join_associations(necessity_by_association)
+    |> Repo.all()
+  end
+
+  defp search_contracts(basic_query, nil), do: basic_query
+
+  defp search_contracts(basic_query, search_string) do
+    from(contract in basic_query,
+      where: ilike(contract.name, ^"%#{search_string}%"),
+      or_where: ilike(fragment("address_hash::text"), ^"%#{search_string}%")
+    )
+  end
+
+  defp filter_contracts(basic_query, :solidity) do
+    basic_query
+    |> where(is_vyper_contract: ^false)
+  end
+
+  defp filter_contracts(basic_query, :vyper) do
+    basic_query
+    |> where(is_vyper_contract: ^true)
+  end
+
+  defp filter_contracts(basic_query, _), do: basic_query
 end
