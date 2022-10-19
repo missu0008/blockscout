@@ -72,7 +72,7 @@ defmodule Explorer.Chain do
 
   alias Explorer.Chain.Import.Runner
   alias Explorer.Chain.InternalTransaction.{CallType, Type}
-  alias Explorer.Counters.{AddressesCounter, AddressesWithBalanceCounter}
+  alias Explorer.Counters.{AddressesCounter, AddressesWithBalanceCounter, ContractsCounter}
   alias Explorer.Market.MarketHistoryCache
   alias Explorer.{PagingOptions, Repo}
   alias Explorer.SmartContract.{Helper, Reader}
@@ -6247,11 +6247,12 @@ defmodule Explorer.Chain do
     |> String.downcase()
   end
 
+  @spec verified_contracts([
+          paging_options | necessity_by_association_option | {:filter, :solidity | :vyper} | {:search, String.t()}
+        ]) :: [SmartContract.t()]
   def verified_contracts(options \\ []) do
-    necessity_by_association = Keyword.get(options, :necessity_by_association, %{})
-
     paging_options = Keyword.get(options, :paging_options, @default_paging_options)
-
+    necessity_by_association = Keyword.get(options, :necessity_by_association, %{})
     filter = Keyword.get(options, :filter, nil)
     search_string = Keyword.get(options, :search, nil)
 
@@ -6284,4 +6285,46 @@ defmodule Explorer.Chain do
   end
 
   defp filter_contracts(basic_query, _), do: basic_query
+
+  def count_verified_contracts() do
+    Repo.aggregate(SmartContract, :count)
+  end
+
+  def count_new_verified_contracts() do
+    from(contract in SmartContract,
+    select: contract.inserted_at,
+    where: fragment("NOW() - ?::timestamptz <= interval '24 hours'", contract.inserted_at))
+    |> Repo.aggregate(:count)
+  end
+
+  def count_contracts() do
+    from(address in Address,
+      select: address,
+      where: not is_nil(address.contract_code)
+    )
+    |> Repo.aggregate(:count)
+  end
+
+  def count_new_contracts() do
+    from(tx in Transaction,
+      select: tx,
+      where: fragment("NOW() - ?::timestamptz <= interval '24 hours'", tx.created_contract_code_indexed_at))
+    |> Repo.aggregate(:count)
+  end
+
+  def count_verified_contracts_from_cache() do
+    ContractsCounter.fetch("verified")
+  end
+
+  def count_new_verified_contracts_from_cache() do
+    ContractsCounter.fetch("new_verified")
+  end
+
+  def count_contracts_from_cache() do
+    ContractsCounter.fetch("all")
+  end
+
+  def count_new_contracts_from_cache() do
+    ContractsCounter.fetch("new")
+  end
 end
